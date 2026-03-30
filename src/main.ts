@@ -30,8 +30,13 @@ tmpC.height = 50;
 const tmpX = tmpC.getContext("2d")!;
 
 function updateMonoMetrics(vw: number): void {
-  // Scale from 1.0 at >=1000px to 0.5 at <=450px
-  const scale = Math.max(0.5, Math.min(1, (vw - 450) / (1000 - 450) * 0.5 + 0.5));
+  // Scale from 2.0 at >=2000px to 1.0 at 1000px to 0.5 at <=450px
+  let scale: number;
+  if (vw >= 1000) {
+    scale = Math.min(2, 1 + (vw - 1000) / (2000 - 1000));
+  } else {
+    scale = Math.max(0.5, 0.5 + (vw - 450) / (1000 - 450) * 0.5);
+  }
   monoFontSize = MONO_FONT_SIZE_BASE * scale;
   monoLineHeight = MONO_LINE_HEIGHT_BASE * scale;
   monoFont = `400 ${monoFontSize}px "Courier New", Courier, monospace`;
