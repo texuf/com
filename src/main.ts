@@ -36,6 +36,8 @@ const ATTRACTOR_R = 12;
 const LARGE_ATTRACTOR_R = 30;
 const ATTRACTOR_FORCE_1 = 0.22;
 const ATTRACTOR_FORCE_2 = 0.05;
+const ATTRACTOR_FORCE_3 = 0.12;
+const ATTRACTOR_FORCE_4 = 0.08;
 const FIELD_DECAY = 0.82;
 const FIELD_OVERSAMPLE = 2;
 
@@ -141,9 +143,9 @@ function resize(): void {
   // Get actual text bounding box at this font size
   measureCtx.font = `${FONT_WEIGHT} ${textFontSize}px ${FONT_FAMILY}`;
   const m = measureCtx.measureText(TEXT);
-  W = m.actualBoundingBoxLeft + m.actualBoundingBoxRight;
+  W = vw;
   H = m.actualBoundingBoxAscent + m.actualBoundingBoxDescent;
-  textDrawX = m.actualBoundingBoxLeft;
+  textDrawX = m.actualBoundingBoxLeft + (vw * (1 - FILL_RATIO)) / 2;
   textDrawY = m.actualBoundingBoxAscent;
 
   // Set canvas pixel size (scaled for DPR)
@@ -179,19 +181,39 @@ function render(now: number): void {
   const a1y = Math.sin(now * 0.0011) * SIM_H * 0.3 + SIM_H / 2;
   const a2x = Math.cos(now * 0.0013 + Math.PI) * SIM_W * 0.2 + SIM_W / 2;
   const a2y = Math.sin(now * 0.0009 + Math.PI) * SIM_H * 0.25 + SIM_H / 2;
+  const a3x = Math.cos(now * 0.0005 + Math.PI * 0.5) * SIM_W * 0.3 + SIM_W / 2;
+  const a3y = Math.sin(now * 0.0008 + Math.PI * 0.5) * SIM_H * 0.25 + SIM_H / 2;
+  const a4x = Math.cos(now * 0.001 + Math.PI * 1.5) * SIM_W * 0.15 + SIM_W / 2;
+  const a4y = Math.sin(now * 0.0012 + Math.PI * 1.5) * SIM_H * 0.35 + SIM_H / 2;
+
+  const attractors = [
+    { x: a1x, y: a1y, f: ATTRACTOR_FORCE_1 },
+    { x: a2x, y: a2y, f: ATTRACTOR_FORCE_2 },
+    { x: a3x, y: a3y, f: ATTRACTOR_FORCE_3 },
+    { x: a4x, y: a4y, f: ATTRACTOR_FORCE_4 },
+  ];
 
   // Update particles (in SIM coordinate space)
   for (const p of particles) {
-    const d1x = a1x - p.x;
-    const d1y = a1y - p.y;
-    const d2x = a2x - p.x;
-    const d2y = a2y - p.y;
-    const dist1 = d1x * d1x + d1y * d1y;
-    const dist2 = d2x * d2x + d2y * d2y;
-    const ax = dist1 < dist2 ? d1x : d2x;
-    const ay = dist1 < dist2 ? d1y : d2y;
-    const d = Math.sqrt(Math.min(dist1, dist2)) + 1;
-    const f = dist1 < dist2 ? ATTRACTOR_FORCE_1 : ATTRACTOR_FORCE_2;
+    let closestDx = 0,
+      closestDy = 0,
+      closestDist = Infinity,
+      closestF = 0;
+    for (const att of attractors) {
+      const dx = att.x - p.x,
+        dy = att.y - p.y;
+      const dist = dx * dx + dy * dy;
+      if (dist < closestDist) {
+        closestDist = dist;
+        closestDx = dx;
+        closestDy = dy;
+        closestF = att.f;
+      }
+    }
+    const ax = closestDx;
+    const ay = closestDy;
+    const d = Math.sqrt(closestDist) + 1;
+    const f = closestF;
     p.vx += (ax / d) * f + (Math.random() - 0.5) * 0.25;
     p.vy += (ay / d) * f + (Math.random() - 0.5) * 0.25;
     p.vx *= 0.97;
@@ -210,6 +232,8 @@ function render(now: number): void {
   for (const p of particles) splat(p.x, p.y, pStamp);
   splat(a1x, a1y, lgStamp);
   splat(a2x, a2y, smStamp);
+  splat(a3x, a3y, smStamp);
+  splat(a4x, a4y, smStamp);
 
   // Draw to canvas
   ctx.save();
@@ -238,10 +262,7 @@ function render(now: number): void {
       );
       text +=
         MONO_RAMP[
-          Math.min(
-            MONO_RAMP.length - 1,
-            ((byte / 255) * MONO_RAMP.length) | 0,
-          )
+          Math.min(MONO_RAMP.length - 1, ((byte / 255) * MONO_RAMP.length) | 0)
         ]!;
     }
     ctx.fillText(text, 0, row * MONO_LINE_HEIGHT);
