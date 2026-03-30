@@ -13,19 +13,31 @@ const { lines: refLines } = layoutWithLines(refPrepared, 99999, REF_SIZE);
 const refWidth = refLines[0].width;
 
 // ---- Monospace ASCII art config ----
-const MONO_FONT_SIZE = 14;
-const MONO_LINE_HEIGHT = 16;
+const MONO_FONT_SIZE_BASE = 14;
+const MONO_LINE_HEIGHT_BASE = 16;
 const MONO_RAMP = " .`-_:,;^=+/|)\\!?0oOQ#%@";
-const MONO_FONT = `400 ${MONO_FONT_SIZE}px "Courier New", Courier, monospace`;
 const MONO_COLOR = "rgba(130, 155, 210, 0.7)";
+
+let monoFontSize = MONO_FONT_SIZE_BASE;
+let monoLineHeight = MONO_LINE_HEIGHT_BASE;
+let monoFont = `400 ${monoFontSize}px "Courier New", Courier, monospace`;
+let MONO_CHAR_W = 0;
 
 // Measure monospace character width
 const tmpC = document.createElement("canvas");
 tmpC.width = 100;
 tmpC.height = 50;
 const tmpX = tmpC.getContext("2d")!;
-tmpX.font = MONO_FONT;
-const MONO_CHAR_W = tmpX.measureText("M").width;
+
+function updateMonoMetrics(vw: number): void {
+  // Scale from 1.0 at >=1000px to 0.5 at <=450px
+  const scale = Math.max(0.5, Math.min(1, (vw - 450) / (1000 - 450) * 0.5 + 0.5));
+  monoFontSize = MONO_FONT_SIZE_BASE * scale;
+  monoLineHeight = MONO_LINE_HEIGHT_BASE * scale;
+  monoFont = `400 ${monoFontSize}px "Courier New", Courier, monospace`;
+  tmpX.font = monoFont;
+  MONO_CHAR_W = tmpX.measureText("M").width;
+}
 
 // ---- Particle simulation config (fixed coordinate space) ----
 const SIM_W = 220;
@@ -135,6 +147,8 @@ function resize(): void {
   const vh = window.innerHeight;
   dpr = window.devicePixelRatio || 1;
 
+  updateMonoMetrics(vw);
+
   // Compute font size to fill 2/3 of viewport
   const sx = (vw * FILL_RATIO) / refWidth;
   const sy = (vh * FILL_RATIO) / REF_SIZE;
@@ -156,7 +170,7 @@ function resize(): void {
 
   // Compute character grid (overshoot by 1 to ensure full coverage)
   cols = Math.max(1, Math.ceil(W / MONO_CHAR_W) + 1);
-  rows = Math.max(1, Math.ceil(H / MONO_LINE_HEIGHT) + 1);
+  rows = Math.max(1, Math.ceil(H / monoLineHeight) + 1);
   fieldCols = cols * FIELD_OVERSAMPLE;
   fieldRows = rows * FIELD_OVERSAMPLE;
   brightnessField = new Float32Array(fieldCols * fieldRows);
@@ -241,7 +255,7 @@ function render(now: number): void {
   ctx.clearRect(0, 0, W, H);
 
   // Draw monospace characters row by row
-  ctx.font = MONO_FONT;
+  ctx.font = monoFont;
   ctx.fillStyle = MONO_COLOR;
   ctx.textBaseline = "top";
 
@@ -265,7 +279,7 @@ function render(now: number): void {
           Math.min(MONO_RAMP.length - 1, ((byte / 255) * MONO_RAMP.length) | 0)
         ]!;
     }
-    ctx.fillText(text, 0, row * MONO_LINE_HEIGHT);
+    ctx.fillText(text, 0, row * monoLineHeight);
   }
 
   // Mask: keep only pixels inside the "texuf" text shape
