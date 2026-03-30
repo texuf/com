@@ -3,7 +3,7 @@
   "version": "0.0.1",
   "private": true,
   "scripts": {
-    "start": "bun run build && bunx serve dist",
+    "start": "cp index.html dist/ && bun build src/main.ts --outdir dist --watch & bunx serve dist",
     "build": "bun build src/main.ts --outdir dist --minify && cp index.html dist/",
     "dev": "bun build src/main.ts --outdir dist && cp index.html dist/"
   },
