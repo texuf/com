@@ -342,6 +342,45 @@ function layoutParagraphOptimal(
   return lines;
 }
 
+// ========== Build MeasuredLine from layoutNextLine result ==========
+
+function buildMeasuredLineFromLayout(
+  prepared: PreparedTextWithSegments,
+  start: LayoutCursor,
+  end: LayoutCursor,
+  maxWidth: number,
+  hyphenWidth: number,
+): MeasuredLine {
+  const ending: LineEnding =
+    end.segmentIndex >= prepared.segments.length ? "paragraph-end" : "wrap";
+  let trailingMarker: TrailingMarker = "none";
+  const segments: LineSegment[] = [];
+
+  for (let si = start.segmentIndex; si < end.segmentIndex; si++) {
+    const text = prepared.segments[si]!;
+    if (text === SOFT_HYPHEN) {
+      if (si === end.segmentIndex - 1) trailingMarker = "soft-hyphen";
+      continue;
+    }
+    segments.push(toLineSegment(text, prepared.widths[si]!));
+  }
+
+  if (
+    trailingMarker === "none" &&
+    end.segmentIndex < prepared.segments.length &&
+    prepared.segments[end.segmentIndex] === SOFT_HYPHEN
+  ) {
+    trailingMarker = "soft-hyphen";
+  }
+
+  if (trailingMarker === "soft-hyphen" && ending === "wrap") {
+    segments.push({ kind: "text", text: "-", width: hyphenWidth });
+  }
+
+  trimTrailingSpaces(segments);
+  return finalizeMeasuredLine(segments, maxWidth, ending, trailingMarker);
+}
+
 // ========== Display Spacing ==========
 
 function getDisplaySpacing(
@@ -357,8 +396,71 @@ function getDisplaySpacing(
   if (rawSpace < normalSpaceWidth * OVERFLOW_SPACE_RATIO)
     return { kind: "overflow" };
 
-  const width = Math.max(rawSpace, normalSpaceWidth * MIN_READABLE_SPACE_RATIO);
+  const width = Math.max(
+    rawSpace,
+    normalSpaceWidth * MIN_READABLE_SPACE_RATIO,
+  );
   return { kind: "justified", width };
+}
+
+// ========== Letter Shape Scanning ==========
+
+type LineBounds = { x: number; width: number };
+
+function scanLetterLineBounds(
+  ch: string,
+  col: { x: number; width: number },
+  displayFont: string,
+  ascent: number,
+  textHeight: number,
+  bodyLineHeight: number,
+): (LineBounds | null)[] {
+  const maxLines = Math.floor(textHeight / bodyLineHeight);
+  const canvasW = Math.ceil(col.width) + 4;
+  const canvasH = Math.ceil(textHeight) + 4;
+
+  const offscreen = document.createElement("canvas");
+  offscreen.width = canvasW;
+  offscreen.height = canvasH;
+  const octx = offscreen.getContext("2d")!;
+
+  octx.font = displayFont;
+  octx.fillStyle = "#fff";
+  octx.textBaseline = "alphabetic";
+  octx.fillText(ch, 2, 2 + ascent);
+
+  const imageData = octx.getImageData(0, 0, canvasW, canvasH);
+  const px = imageData.data;
+
+  const bounds: (LineBounds | null)[] = [];
+  for (let li = 0; li < maxLines; li++) {
+    const bandTop = Math.floor(2 + li * bodyLineHeight);
+    const bandBot = Math.min(
+      Math.ceil(2 + (li + 1) * bodyLineHeight),
+      canvasH,
+    );
+
+    let left = canvasW;
+    let right = -1;
+
+    for (let py = bandTop; py < bandBot; py++) {
+      const rowOff = py * canvasW;
+      for (let pxx = 0; pxx < canvasW; pxx++) {
+        if (px[(rowOff + pxx) * 4 + 3]! > 15) {
+          if (pxx < left) left = pxx;
+          if (pxx > right) right = pxx;
+        }
+      }
+    }
+
+    if (left < right) {
+      bounds.push({ x: col.x + (left - 2), width: right - left });
+    } else {
+      bounds.push(null);
+    }
+  }
+
+  return bounds;
 }
 
 // ========== Experiment ==========
@@ -414,7 +516,9 @@ export function dynamicExperiment(container: HTMLElement): {
     const displayFont = `${TITLE_FONT_WEIGHT} ${displayFontSize}px ${TITLE_FONT_FAMILY}`;
     measureCtx.font = displayFont;
     const m = measureCtx.measureText(TEXT);
-    const textHeight = m.actualBoundingBoxAscent + m.actualBoundingBoxDescent;
+    const textHeight =
+      m.actualBoundingBoxAscent + m.actualBoundingBoxDescent;
+    const ascent = m.actualBoundingBoxAscent;
 
     // Column regions
     const totalWidth = refTotalWidth * displayScale;
@@ -433,7 +537,8 @@ export function dynamicExperiment(container: HTMLElement): {
     // Body font size (responsive, same scaling as particles mono)
     let fontScale: number;
     if (vw >= 2000) fontScale = 1;
-    else fontScale = Math.max(0.5, 0.5 + ((vw - 450) / (2000 - 450)) * 0.5);
+    else
+      fontScale = Math.max(0.5, 0.5 + ((vw - 450) / (2000 - 450)) * 0.5);
     const bodyFontSize = Math.max(4, BODY_FONT_SIZE_BASE * fontScale);
     const bodyLineHeight = Math.max(
       6,
@@ -457,84 +562,67 @@ export function dynamicExperiment(container: HTMLElement): {
     const normalSpaceWidth = measureCtx.measureText(" ").width;
     const hyphenWidth = measureCtx.measureText("-").width;
 
-    // Prepare full hyphenated text for greedy allocation
-    const fullPrepared = prepareWithSegments(hyphenatedBody, bodyFont);
-
-    // Greedy pass: allocate text to columns
-    let cursor: LayoutCursor = { segmentIndex: 0, graphemeIndex: 0 };
-    const maxLinesPerCol = Math.floor(textHeight / bodyLineHeight);
-
-    type ColumnRender = {
-      col: Column;
-      lines: MeasuredLine[];
-    };
-    const renderColumns: ColumnRender[] = [];
-
-    for (const col of columns) {
-      if (col.width < bodyFontSize * 2) continue;
-
-      const lineTexts: string[] = [];
-      for (let i = 0; i < maxLinesPerCol; i++) {
-        let line = layoutNextLine(fullPrepared, cursor, col.width);
-        if (!line) {
-          // Loop text
-          cursor = { segmentIndex: 0, graphemeIndex: 0 };
-          line = layoutNextLine(fullPrepared, cursor, col.width);
-          if (!line) break;
-        }
-        lineTexts.push(line.text);
-        cursor = line.end;
-      }
-
-      if (lineTexts.length === 0) continue;
-
-      // Reconstruct column text (handle soft-hyphen joins)
-      let colText = "";
-      for (let i = 0; i < lineTexts.length; i++) {
-        if (i > 0) {
-          const prev = lineTexts[i - 1]!;
-          if (!prev.endsWith(SOFT_HYPHEN)) colText += " ";
-        }
-        colText += lineTexts[i]!;
-      }
-
-      // Optimal linebreak on this column's text
-      const colPrepared = prepareWithSegments(colText, bodyFont);
-      const optimalLines = layoutParagraphOptimal(
-        colPrepared,
-        col.width,
-        hyphenWidth,
-        normalSpaceWidth,
+    // Scan letter shapes for per-line bounds
+    const allBounds: (LineBounds | null)[][] = [];
+    for (let i = 0; i < TEXT.length; i++) {
+      allBounds.push(
+        scanLetterLineBounds(
+          TEXT[i]!,
+          columns[i]!,
+          displayFont,
+          ascent,
+          textHeight,
+          bodyLineHeight,
+        ),
       );
-
-      renderColumns.push({
-        col,
-        lines: optimalLines.slice(0, maxLinesPerCol),
-      });
     }
 
-    // Render justified text to canvas
+    // Prepare hyphenated text
+    const prepared = prepareWithSegments(hyphenatedBody, bodyFont);
+    let cursor: LayoutCursor = { segmentIndex: 0, graphemeIndex: 0 };
+
+    // Render justified text, one line at a time following letter contours
     ctx.font = bodyFont;
     ctx.textBaseline = "top";
+    ctx.fillStyle = "rgba(255, 255, 255, 0.85)";
 
-    for (const { col, lines } of renderColumns) {
-      let y = topY;
-      for (const line of lines) {
-        const spacing = getDisplaySpacing(line, normalSpaceWidth);
-        let x = col.x;
+    for (let colIdx = 0; colIdx < TEXT.length; colIdx++) {
+      const colBounds = allBounds[colIdx]!;
 
-        ctx.fillStyle = "rgba(255, 255, 255, 0.85)";
+      for (let li = 0; li < colBounds.length; li++) {
+        const bounds = colBounds[li];
+        if (!bounds || bounds.width < bodyFontSize) continue;
 
-        for (const seg of line.segments) {
+        let line = layoutNextLine(prepared, cursor, bounds.width);
+        if (!line) {
+          cursor = { segmentIndex: 0, graphemeIndex: 0 };
+          line = layoutNextLine(prepared, cursor, bounds.width);
+          if (!line) continue;
+        }
+
+        const measured = buildMeasuredLineFromLayout(
+          prepared,
+          line.start,
+          line.end,
+          bounds.width,
+          hyphenWidth,
+        );
+        const spacing = getDisplaySpacing(measured, normalSpaceWidth);
+
+        let x = bounds.x;
+        const y = topY + li * bodyLineHeight;
+
+        for (const seg of measured.segments) {
           if (seg.kind === "space") {
-            x += spacing.kind === "justified" ? spacing.width : seg.width;
+            x +=
+              spacing.kind === "justified" ? spacing.width : seg.width;
             continue;
           }
           ctx.fillText(seg.text, x, y);
           x += seg.width;
         }
 
-        y += bodyLineHeight;
+        cursor = line.end;
       }
     }
   }
