@@ -27,7 +27,7 @@ export function dynamicExperiment(container: HTMLElement): {
   const refTotalWidth = refCharWidths.reduce((sum, w) => sum + w, 0);
 
   // ---- Body text config (half the particles mono size) ----
-  const BODY_FONT_SIZE_BASE = 7;
+  const BODY_FONT_SIZE_BASE = 14;
   const BODY_LINE_HEIGHT_RATIO = 1.4;
   const BODY_FONT_FAMILY =
     'Georgia, Palatino, "Times New Roman", serif';
