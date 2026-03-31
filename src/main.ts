@@ -6,10 +6,10 @@ import { dynamicExperiment } from "./experiments/dynamic";
 type ExperimentFactory = (container: HTMLElement) => { destroy(): void };
 
 const experiments: ExperimentFactory[] = [
+  dynamicExperiment,
   bannerExperiment,
   particlesExperiment2,
   particlesExperiment,
-  dynamicExperiment,
 ];
 
 const container = document.getElementById("container")!;
