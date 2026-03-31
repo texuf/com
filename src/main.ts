@@ -1,10 +1,12 @@
 import { particlesExperiment } from "./experiments/particles";
 import { particlesExperiment2 } from "./experiments/particles2";
 import { bannerExperiment } from "./experiments/banner";
+import { dynamicExperiment } from "./experiments/dynamic";
 
 type ExperimentFactory = (container: HTMLElement) => { destroy(): void };
 
 const experiments: ExperimentFactory[] = [
+  dynamicExperiment,
   bannerExperiment,
   particlesExperiment2,
   particlesExperiment,

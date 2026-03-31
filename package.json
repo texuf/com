@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "start": "cp index.html dist/ && bun build src/main.ts --outdir dist --watch & bunx serve dist",
-    "build": "bun build src/main.ts --outdir dist --minify && cp index.html dist/",
+    "build": "bun build src/main.ts --outdir dist --minify --entry-naming '[dir]/[name]-[hash].[ext]' && cp index.html dist/ && cd dist && JSFILE=$(ls main-*.js | head -1) && sed \"s|./main.js|./$JSFILE|\" index.html > index.tmp && mv index.tmp index.html",
     "dev": "bun build src/main.ts --outdir dist && cp index.html dist/"
   },
   "dependencies": {
