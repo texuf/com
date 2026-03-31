@@ -6,7 +6,7 @@ type ExperimentFactory = (container: HTMLElement) => { destroy(): void };
 
 const experiments: ExperimentFactory[] = [
   bannerExperiment,
-  particlesExperiment,
+  //particlesExperiment,
   particlesExperiment2,
 ];
 
