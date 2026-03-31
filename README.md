@@ -18,7 +18,5 @@ Output is in `dist/`.
 
 ## Deploy
 
-Cloudflare Pages:
-
 - Build command: `bun run build`
 - Output directory: `dist`
