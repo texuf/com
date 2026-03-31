@@ -19,7 +19,9 @@ export function particlesExperiment2(container: HTMLElement): {
   const PROP_FONT_SIZE_BASE = 14;
   const PROP_LINE_HEIGHT_BASE = 16;
   const PROP_FAMILY = 'Georgia, Palatino, "Times New Roman", serif';
-  const CHARSET = " .,:texuf";
+  const CHARSET =
+    " .,:;!+-=*#@%&abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+  //const CHARSET = " .,:texuf";
   const WEIGHTS = [300, 500, 800] as const;
   const FONT_STYLES = ["normal", "italic"] as const;
   type FontStyleVariant = (typeof FONT_STYLES)[number];
@@ -186,14 +188,6 @@ export function particlesExperiment2(container: HTMLElement): {
   const wrapper = document.createElement("div");
   wrapper.className = "prop-wrapper";
   container.appendChild(wrapper);
-
-  const overlayCanvas = document.createElement("canvas");
-  overlayCanvas.style.position = "absolute";
-  overlayCanvas.style.top = "0";
-  overlayCanvas.style.left = "0";
-  overlayCanvas.style.pointerEvents = "none";
-  wrapper.appendChild(overlayCanvas);
-  const overlayCtx = overlayCanvas.getContext("2d")!;
 
   const maskCanvas = document.createElement("canvas");
   const maskCtx = maskCanvas.getContext("2d")!;

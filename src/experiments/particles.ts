@@ -164,11 +164,11 @@ export function particlesExperiment(container: HTMLElement): {
     const m = measureCtx.measureText(TEXT);
     W = vw;
     H = m.actualBoundingBoxAscent + m.actualBoundingBoxDescent;
-    const xOffestHack = 1.02;
-    const yOffestHack = 0.9775;
+    const xOffsetHack = 1.021;
+    const yOffsetHack = 0.978;
     textDrawX =
-      m.actualBoundingBoxLeft + ((vw * (1.0 - FILL_RATIO)) / 2.0) * xOffestHack;
-    textDrawY = m.actualBoundingBoxAscent * yOffestHack;
+      m.actualBoundingBoxLeft + ((vw * (1.0 - FILL_RATIO)) / 2.0) * xOffsetHack;
+    textDrawY = m.actualBoundingBoxAscent * yOffsetHack;
 
     canvas.width = Math.round(W * dpr);
     canvas.height = Math.round(H * dpr);
