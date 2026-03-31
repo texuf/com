@@ -147,6 +147,7 @@ export function particlesExperiment2(container: HTMLElement): {
     .prop-wrapper {
       position: relative;
       overflow: hidden;
+      pointer-events: none;
     }
     .prop-wrapper .art-row {
       white-space: nowrap;
