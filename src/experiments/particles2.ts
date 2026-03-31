@@ -187,6 +187,14 @@ export function particlesExperiment2(container: HTMLElement): {
   wrapper.className = "prop-wrapper";
   container.appendChild(wrapper);
 
+  const overlayCanvas = document.createElement("canvas");
+  overlayCanvas.style.position = "absolute";
+  overlayCanvas.style.top = "0";
+  overlayCanvas.style.left = "0";
+  overlayCanvas.style.pointerEvents = "none";
+  wrapper.appendChild(overlayCanvas);
+  const overlayCtx = overlayCanvas.getContext("2d")!;
+
   const maskCanvas = document.createElement("canvas");
   const maskCtx = maskCanvas.getContext("2d")!;
   const measureCtx = document.createElement("canvas").getContext("2d")!;
@@ -293,6 +301,7 @@ export function particlesExperiment2(container: HTMLElement): {
     measureCtx.font = `${FONT_WEIGHT} ${textFontSize}px ${FONT_FAMILY}`;
     const m = measureCtx.measureText(TEXT);
     W = vw;
+    //W = m.actualBoundingBoxLeft + m.actualBoundingBoxRight;
     H = m.actualBoundingBoxAscent + m.actualBoundingBoxDescent;
 
     // Grid dimensions
@@ -339,8 +348,8 @@ export function particlesExperiment2(container: HTMLElement): {
     maskCtx.font = `${FONT_WEIGHT} ${textFontSize}px ${FONT_FAMILY}`;
     maskCtx.fillStyle = "#fff";
     maskCtx.textBaseline = "alphabetic";
-    const xOffsetHack = 1.02;
-    const yOffsetHack = 0.9775;
+    const xOffsetHack = 1.021;
+    const yOffsetHack = 0.978;
     const textDrawX =
       m.actualBoundingBoxLeft + ((vw * (1.0 - FILL_RATIO)) / 2.0) * xOffsetHack;
     const textDrawY = m.actualBoundingBoxAscent * yOffsetHack;
