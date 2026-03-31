@@ -3,7 +3,7 @@ import { prepareWithSegments, layoutWithLines } from "@chenglou/pretext";
 export function particlesExperiment2(container: HTMLElement): {
   destroy(): void;
 } {
-  // ---- Text measurement ----
+  // ---- Text measurement (for mask) ----
   const TEXT = "texuf";
   const FILL_RATIO = 2 / 3;
   const FONT_FAMILY = "Arial, sans-serif";
@@ -15,37 +15,160 @@ export function particlesExperiment2(container: HTMLElement): {
   const { lines: refLines } = layoutWithLines(refPrepared, 99999, REF_SIZE);
   const refWidth = refLines[0].width;
 
-  // ---- Monospace ASCII art config ----
-  const MONO_FONT_SIZE_BASE = 14;
-  const MONO_LINE_HEIGHT_BASE = 16;
-  const MONO_RAMP = " .`-_:,;^=+/|)\\!?0oOQ#%@";
-  const MONO_COLOR = "rgba(130, 155, 210, 0.7)";
+  // ---- Proportional font config ----
+  const PROP_FONT_SIZE_BASE = 14;
+  const PROP_LINE_HEIGHT_BASE = 16;
+  const PROP_FAMILY = 'Georgia, Palatino, "Times New Roman", serif';
+  const CHARSET = " .,:texuf";
+  const WEIGHTS = [300, 500, 800] as const;
+  const FONT_STYLES = ["normal", "italic"] as const;
+  type FontStyleVariant = (typeof FONT_STYLES)[number];
 
-  let monoFontSize = MONO_FONT_SIZE_BASE;
-  let monoLineHeight = MONO_LINE_HEIGHT_BASE;
-  let monoFont = `400 ${monoFontSize}px "Courier New", Courier, monospace`;
-  let MONO_CHAR_W = 0;
+  let propFontSize = PROP_FONT_SIZE_BASE;
+  let propLineHeight = PROP_LINE_HEIGHT_BASE;
 
-  const tmpC = document.createElement("canvas");
-  tmpC.width = 100;
-  tmpC.height = 50;
-  const tmpX = tmpC.getContext("2d")!;
+  // ---- Build palette ----
+  type PaletteEntry = {
+    char: string;
+    weight: number;
+    style: FontStyleVariant;
+    width: number;
+    brightness: number;
+  };
 
-  function updateMonoMetrics(vw: number): void {
-    let scale: number;
-    if (vw >= 2000) {
-      scale = 1;
-    } else {
-      scale = Math.max(0.5, 0.5 + ((vw - 450) / (2000 - 450)) * 0.5);
-    }
-    monoFontSize = MONO_FONT_SIZE_BASE * scale;
-    monoLineHeight = MONO_LINE_HEIGHT_BASE * scale;
-    monoFont = `400 ${monoFontSize}px "Courier New", Courier, monospace`;
-    tmpX.font = monoFont;
-    MONO_CHAR_W = tmpX.measureText("M").width;
+  const brightnessCanvas = document.createElement("canvas");
+  brightnessCanvas.width = 28;
+  brightnessCanvas.height = 28;
+  const bCtx = brightnessCanvas.getContext("2d", {
+    willReadFrequently: true,
+  })!;
+
+  function estimateBrightness(ch: string, font: string): number {
+    const size = 28;
+    bCtx.clearRect(0, 0, size, size);
+    bCtx.font = font;
+    bCtx.fillStyle = "#fff";
+    bCtx.textBaseline = "middle";
+    bCtx.fillText(ch, 1, size / 2);
+    const data = bCtx.getImageData(0, 0, size, size).data;
+    let sum = 0;
+    for (let i = 3; i < data.length; i += 4) sum += data[i]!;
+    return sum / (255 * size * size);
   }
 
-  // ---- Particle simulation config (fixed coordinate space) ----
+  function measureCharWidth(ch: string, font: string): number {
+    const prepared = prepareWithSegments(ch, font);
+    return prepared.widths.length > 0 ? prepared.widths[0]! : 0;
+  }
+
+  const palette: PaletteEntry[] = [];
+  for (const style of FONT_STYLES) {
+    for (const weight of WEIGHTS) {
+      const font = `${style === "italic" ? "italic " : ""}${weight} ${PROP_FONT_SIZE_BASE}px ${PROP_FAMILY}`;
+      for (const ch of CHARSET) {
+        if (ch === " ") continue;
+        const width = measureCharWidth(ch, font);
+        if (width <= 0) continue;
+        const brightness = estimateBrightness(ch, font);
+        palette.push({ char: ch, weight, style, width, brightness });
+      }
+    }
+  }
+
+  const maxBrightness = Math.max(...palette.map((e) => e.brightness));
+  if (maxBrightness > 0) {
+    for (const entry of palette) entry.brightness /= maxBrightness;
+  }
+  palette.sort((a, b) => a.brightness - b.brightness);
+
+  const BASE_TARGET_ROW_W = 440;
+  const BASE_COLS = 50;
+  const baseCellW = BASE_TARGET_ROW_W / BASE_COLS;
+
+  function findBest(targetBrightness: number): PaletteEntry {
+    let lo = 0;
+    let hi = palette.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (palette[mid]!.brightness < targetBrightness) lo = mid + 1;
+      else hi = mid;
+    }
+    let bestScore = Infinity;
+    let best = palette[lo]!;
+    const start = Math.max(0, lo - 15);
+    const end = Math.min(palette.length, lo + 15);
+    for (let i = start; i < end; i++) {
+      const entry = palette[i]!;
+      const brightnessError =
+        Math.abs(entry.brightness - targetBrightness) * 2.5;
+      const widthError = Math.abs(entry.width - baseCellW) / baseCellW;
+      const score = brightnessError + widthError;
+      if (score < bestScore) {
+        bestScore = score;
+        best = entry;
+      }
+    }
+    return best;
+  }
+
+  // ---- Brightness lookup ----
+  function esc(ch: string): string {
+    if (ch === "<") return "&lt;";
+    if (ch === ">") return "&gt;";
+    if (ch === "&") return "&amp;";
+    if (ch === '"') return "&quot;";
+    return ch;
+  }
+
+  function wCls(weight: number, style: FontStyleVariant): string {
+    const wc = weight === 300 ? "w3" : weight === 500 ? "w5" : "w8";
+    return style === "italic" ? `${wc} it` : wc;
+  }
+
+  const propHtmlLookup: string[] = [];
+  for (let bb = 0; bb < 256; bb++) {
+    const brightness = bb / 255;
+    if (brightness < 0.03) {
+      propHtmlLookup.push(" ");
+      continue;
+    }
+    const match = findBest(brightness);
+    const alphaIndex = Math.max(1, Math.min(10, Math.round(brightness * 10)));
+    propHtmlLookup.push(
+      `<span class="${wCls(match.weight, match.style)} a${alphaIndex}">${esc(match.char)}</span>`,
+    );
+  }
+
+  // ---- Inject CSS ----
+  const styleEl = document.createElement("style");
+  styleEl.textContent = `
+    .prop-wrapper {
+      position: relative;
+      overflow: hidden;
+    }
+    .prop-wrapper .art-row {
+      white-space: nowrap;
+      font-family: Georgia, Palatino, "Times New Roman", serif;
+      color: rgb(237, 113, 12);
+    }
+    .prop-wrapper .w3 { font-weight: 300; }
+    .prop-wrapper .w5 { font-weight: 500; }
+    .prop-wrapper .w8 { font-weight: 800; }
+    .prop-wrapper .it { font-style: italic; }
+    .prop-wrapper .a1 { opacity: 0.1; }
+    .prop-wrapper .a2 { opacity: 0.2; }
+    .prop-wrapper .a3 { opacity: 0.3; }
+    .prop-wrapper .a4 { opacity: 0.4; }
+    .prop-wrapper .a5 { opacity: 0.5; }
+    .prop-wrapper .a6 { opacity: 0.6; }
+    .prop-wrapper .a7 { opacity: 0.7; }
+    .prop-wrapper .a8 { opacity: 0.8; }
+    .prop-wrapper .a9 { opacity: 0.9; }
+    .prop-wrapper .a10 { opacity: 1.0; }
+  `;
+  document.head.appendChild(styleEl);
+
+  // ---- Particle simulation config ----
   const SIM_W = 220;
   const SIM_H = 142;
   const PARTICLE_N = 120;
@@ -59,26 +182,27 @@ export function particlesExperiment2(container: HTMLElement): {
   const FIELD_DECAY = 0.82;
   const FIELD_OVERSAMPLE = 2;
 
-  // ---- Canvas ----
-  const canvas = document.createElement("canvas");
-  container.appendChild(canvas);
-  const ctx = canvas.getContext("2d")!;
+  // ---- DOM structure ----
+  const wrapper = document.createElement("div");
+  wrapper.className = "prop-wrapper";
+  container.appendChild(wrapper);
+
+  const maskCanvas = document.createElement("canvas");
+  const maskCtx = maskCanvas.getContext("2d")!;
   const measureCtx = document.createElement("canvas").getContext("2d")!;
 
   // ---- Dynamic state ----
   let cols = 1;
-  let rows = 1;
+  let numRows = 1;
   let fieldCols = 2;
   let fieldRows = 2;
   let W = 100;
   let H = 100;
-  let textFontSize = 100;
-  let textDrawX = 0;
-  let textDrawY = 0;
-  let dpr = 1;
   let brightnessField = new Float32Array(4);
   let fsx = 1;
   let fsy = 1;
+
+  const rowDivs: HTMLDivElement[] = [];
 
   // ---- Particles ----
   type Particle = { x: number; y: number; vx: number; vy: number };
@@ -152,33 +276,31 @@ export function particlesExperiment2(container: HTMLElement): {
   function resize(): void {
     const vw = window.innerWidth;
     const vh = window.innerHeight;
-    dpr = window.devicePixelRatio || 1;
 
-    updateMonoMetrics(vw);
+    // Scale prop font (same logic as mono scaling in particles1)
+    let scale: number;
+    if (vw >= 2000) scale = 1;
+    else scale = Math.max(0.5, 0.5 + ((vw - 450) / (2000 - 450)) * 0.5);
+    propFontSize = PROP_FONT_SIZE_BASE * scale;
+    propLineHeight = PROP_LINE_HEIGHT_BASE * scale;
 
+    // Compute text font size for mask
     const sx = (vw * FILL_RATIO) / refWidth;
     const sy = (vh * FILL_RATIO) / REF_SIZE;
-    textFontSize = REF_SIZE * Math.min(sx, sy);
+    const textFontSize = REF_SIZE * Math.min(sx, sy);
 
+    // Measure text bounding box
     measureCtx.font = `${FONT_WEIGHT} ${textFontSize}px ${FONT_FAMILY}`;
     const m = measureCtx.measureText(TEXT);
     W = vw;
     H = m.actualBoundingBoxAscent + m.actualBoundingBoxDescent;
-    const xOffestHack = 1.02;
-    const yOffestHack = 0.9775;
-    textDrawX =
-      m.actualBoundingBoxLeft + ((vw * (1.0 - FILL_RATIO)) / 2.0) * xOffestHack;
-    textDrawY = m.actualBoundingBoxAscent * yOffestHack;
 
-    canvas.width = Math.round(W * dpr);
-    canvas.height = Math.round(H * dpr);
-    canvas.style.width = `${W}px`;
-    canvas.style.height = `${H}px`;
-
-    cols = Math.max(1, Math.ceil(W / MONO_CHAR_W) + 1);
-    rows = Math.max(1, Math.ceil(H / monoLineHeight) + 1);
+    // Grid dimensions
+    const scaledCellW = baseCellW * scale;
+    cols = Math.max(1, Math.ceil(W / scaledCellW));
+    numRows = Math.max(1, Math.ceil(H / propLineHeight) + 1);
     fieldCols = cols * FIELD_OVERSAMPLE;
-    fieldRows = rows * FIELD_OVERSAMPLE;
+    fieldRows = numRows * FIELD_OVERSAMPLE;
     brightnessField = new Float32Array(fieldCols * fieldRows);
 
     fsx = fieldCols / SIM_W;
@@ -187,6 +309,51 @@ export function particlesExperiment2(container: HTMLElement): {
     pStamp = makeStamp(SPRITE_R);
     lgStamp = makeStamp(LARGE_ATTRACTOR_R);
     smStamp = makeStamp(ATTRACTOR_R);
+
+    // Rebuild row divs
+    while (rowDivs.length > numRows) {
+      const div = rowDivs.pop()!;
+      wrapper.removeChild(div);
+    }
+    while (rowDivs.length < numRows) {
+      const div = document.createElement("div");
+      div.className = "art-row";
+      wrapper.appendChild(div);
+      rowDivs.push(div);
+    }
+    for (const div of rowDivs) {
+      div.style.height = div.style.lineHeight = `${propLineHeight}px`;
+      div.style.fontSize = `${propFontSize}px`;
+    }
+
+    // Update wrapper size
+    wrapper.style.width = `${W}px`;
+    wrapper.style.height = `${H}px`;
+
+    // Generate mask canvas
+    const dpr = window.devicePixelRatio || 1;
+    maskCanvas.width = Math.round(W * dpr);
+    maskCanvas.height = Math.round(H * dpr);
+    maskCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    maskCtx.clearRect(0, 0, W, H);
+    maskCtx.font = `${FONT_WEIGHT} ${textFontSize}px ${FONT_FAMILY}`;
+    maskCtx.fillStyle = "#fff";
+    maskCtx.textBaseline = "alphabetic";
+    const xOffsetHack = 1.02;
+    const yOffsetHack = 0.9775;
+    const textDrawX =
+      m.actualBoundingBoxLeft + ((vw * (1.0 - FILL_RATIO)) / 2.0) * xOffsetHack;
+    const textDrawY = m.actualBoundingBoxAscent * yOffsetHack;
+    maskCtx.fillText(TEXT, textDrawX, textDrawY);
+
+    // Apply CSS mask
+    const maskDataUrl = maskCanvas.toDataURL();
+    wrapper.style.webkitMaskImage = `url(${maskDataUrl})`;
+    wrapper.style.maskImage = `url(${maskDataUrl})`;
+    wrapper.style.webkitMaskSize = `${W}px ${H}px`;
+    wrapper.style.maskSize = `${W}px ${H}px`;
+    wrapper.style.webkitMaskRepeat = "no-repeat";
+    wrapper.style.maskRepeat = "no-repeat";
   }
 
   resize();
@@ -232,12 +399,9 @@ export function particlesExperiment2(container: HTMLElement): {
           closestF = att.f;
         }
       }
-      const ax = closestDx;
-      const ay = closestDy;
       const d = Math.sqrt(closestDist) + 1;
-      const f = closestF;
-      p.vx += (ax / d) * f + (Math.random() - 0.5) * 0.25;
-      p.vy += (ay / d) * f + (Math.random() - 0.5) * 0.25;
+      p.vx += (closestDx / d) * closestF + (Math.random() - 0.5) * 0.25;
+      p.vy += (closestDy / d) * closestF + (Math.random() - 0.5) * 0.25;
       p.vx *= 0.97;
       p.vy *= 0.97;
       p.x += p.vx;
@@ -256,16 +420,9 @@ export function particlesExperiment2(container: HTMLElement): {
     splat(a3x, a3y, smStamp);
     splat(a4x, a4y, smStamp);
 
-    ctx.save();
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, W, H);
-
-    ctx.font = monoFont;
-    ctx.fillStyle = MONO_COLOR;
-    ctx.textBaseline = "top";
-
-    for (let row = 0; row < rows; row++) {
-      let text = "";
+    // Render propHtml to row divs
+    for (let row = 0; row < numRows; row++) {
+      let html = "";
       const frs = row * FIELD_OVERSAMPLE * fieldCols;
       for (let col = 0; col < cols; col++) {
         const fcs = col * FIELD_OVERSAMPLE;
@@ -275,29 +432,15 @@ export function particlesExperiment2(container: HTMLElement): {
           for (let sx = 0; sx < FIELD_OVERSAMPLE; sx++)
             b += brightnessField[off + sx]!;
         }
-        const byte = Math.min(
+        const bb = Math.min(
           255,
           ((b / (FIELD_OVERSAMPLE * FIELD_OVERSAMPLE)) * 255) | 0,
         );
-        text +=
-          MONO_RAMP[
-            Math.min(
-              MONO_RAMP.length - 1,
-              ((byte / 255) * MONO_RAMP.length) | 0,
-            )
-          ]!;
+        html += propHtmlLookup[bb];
       }
-      ctx.fillText(text, 0, row * monoLineHeight);
+      rowDivs[row]!.innerHTML = html;
     }
 
-    ctx.globalCompositeOperation = "destination-in";
-    ctx.font = `${FONT_WEIGHT} ${textFontSize}px ${FONT_FAMILY}`;
-    ctx.fillStyle = "#fff";
-    ctx.textBaseline = "alphabetic";
-    ctx.fillText(TEXT, textDrawX, textDrawY);
-    ctx.globalCompositeOperation = "source-over";
-
-    ctx.restore();
     animId = requestAnimationFrame(render);
   }
 
@@ -307,7 +450,8 @@ export function particlesExperiment2(container: HTMLElement): {
     destroy() {
       cancelAnimationFrame(animId);
       window.removeEventListener("resize", resize);
-      container.removeChild(canvas);
+      container.removeChild(wrapper);
+      document.head.removeChild(styleEl);
     },
   };
 }
