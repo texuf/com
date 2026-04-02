@@ -500,6 +500,13 @@ export function dynamicExperiment(container: HTMLElement): {
   canvas.style.pointerEvents = "none";
   container.appendChild(canvas);
 
+  const attribution = document.createElement("div");
+  attribution.textContent =
+    "From The Low Beyond. \u00A91996-\u00A92001 by Eliezer S. Yudkowsky. All rights reserved.";
+  attribution.style.cssText =
+    "position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;padding:0;margin:-1px";
+  container.appendChild(attribution);
+
   const measureCtx = document.createElement("canvas").getContext("2d")!;
 
   function layout(): void {
@@ -634,6 +641,7 @@ export function dynamicExperiment(container: HTMLElement): {
     destroy() {
       window.removeEventListener("resize", layout);
       container.removeChild(canvas);
+      container.removeChild(attribution);
     },
   };
 }
